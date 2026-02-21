@@ -1,5 +1,5 @@
 ---
-name: indie-maker
+name: advisor
 description: |
   Indie maker product advisor using Pieter Levels' MAKE methodology.
   Guides through 7 stages: Idea, Build, Launch, Grow, Monetize, Automate, Exit.

@@ -1,5 +1,8 @@
 {
   "name": "jadlis-advisor-make",
   "description": "Indie maker product advisor using Pieter Levels' MAKE methodology",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "author": { "name": "beCyborg" },
+  "repository": "https://github.com/beCyborg/Jadlis-Advisor-Make",
+  "keywords": ["indie-maker", "bootstrapping", "product-launch", "monetization"]
 }
