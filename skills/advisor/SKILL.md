@@ -7,6 +7,7 @@ description: |
   monetization, build in public, side project, exit strategy, selling a company.
   Russian triggers: инди мейкер, бутстрэп, запуск продукта, MVP, монетизация,
   продажа компании, side project, no-code, бутстрэппинг.
+allowed-tools: mcp__plugin_supabase_supabase__execute_sql, mcp__plugin_supabase_supabase__list_projects
 ---
 
 # Indie Maker Advisor
@@ -25,6 +26,70 @@ Procedural advisor for building bootstrapped internet products using Pieter Leve
 - User wants to automate operations and step back from daily work
 - User received an acquisition offer or considers selling their business
 - User mentions: indie maker, bootstrapping, MVP, Product Hunt, monetization, exit, side project, build in public, no-code, инди мейкер, бутстрэп, запуск продукта, монетизация, продажа компании
+
+
+## Context Loading Protocol
+
+Execute the following steps at the start of every advisory session:
+
+1. Call `mcp__plugin_supabase_supabase__list_projects` to obtain PROJECT_ID.
+2. Execute the following SQL queries using `mcp__plugin_supabase_supabase__execute_sql` with `project_id: PROJECT_ID`:
+
+**User tier:**
+```sql
+SELECT current_tier FROM user_tier WHERE id = 'singleton'
+```
+
+**Need scores (with fallback):**
+```sql
+-- Primary: today's scores
+SELECT n.id, n.name, ns.score, ns.period_start
+FROM needs n
+LEFT JOIN need_scores ns ON n.id = ns.need_id AND ns.period_start = CURRENT_DATE
+ORDER BY n.id
+
+-- If primary returns empty scores, use fallback:
+SELECT n.id, n.name, ns.score, ns.period_start
+FROM needs n
+LEFT JOIN need_scores ns ON n.id = ns.need_id
+  AND ns.period_start = (
+    SELECT MAX(period_start) FROM need_scores WHERE period_type = 'daily'
+  )
+ORDER BY n.id
+```
+Note the date of the scores and inform the user if data is not from today.
+
+**Active and draft goals:**
+```sql
+SELECT id, title, type, status, need_id, hypothesis, definition_of_done
+FROM goals
+WHERE status IN ('active', 'draft')
+ORDER BY created_at DESC
+LIMIT 20
+```
+
+**SWOT entries (open):**
+```sql
+SELECT id, type, title, content, impact, need_ids
+FROM swot_entries
+WHERE status NOT IN ('ignored', 'accepted', 'goal_created')
+ORDER BY created_at DESC
+LIMIT 20
+```
+
+**Active habits:**
+```sql
+SELECT id, name, identity, tier, is_active, need_id, metric_id
+FROM habits
+WHERE is_active = true
+ORDER BY created_at DESC
+```
+
+3. Read `.claude/make.local.md` using the Read tool (per-project context file).
+4. Analyze all loaded context before proceeding.
+5. Ask the user for methodology-specific context that cannot be loaded automatically.
+
+**Fallback:** If Supabase MCP is unavailable (tool call fails), continue as pure knowledge advisor. Inform: "Supabase MCP is unavailable. Working in pure knowledge mode — context not loaded automatically. Describe your current situation."
 
 ## Individualization Protocol
 
@@ -147,6 +212,61 @@ See references/launch-playbooks.md for full PH preparation checklist.
 5. **Fear of charging**: "users will leave if I charge" — yes, ~95% will. The ~5% who pay are your real business. Start charging today.
 6. **Braggy press emails**: long, jargon-filled, CEO-titled emails go straight to trash. Use the 2-sentence personal template from [press-outreach.md](references/press-outreach.md).
 7. **Accepting earnouts**: buyer can sabotage your targets to avoid paying the earnout bonus. Demand full cash payment. See [automation-exit.md](references/automation-exit.md).
+
+
+## Proposal Protocol
+
+For each recommendation generated during the advisory session:
+
+1. Formulate the recommendation based on methodology analysis.
+2. Present the recommendation to the user with full reasoning.
+3. Record the proposal in `advisor_proposals` via `execute_sql`:
+
+```sql
+INSERT INTO advisor_proposals (
+  advisor_name,
+  proposal_type,
+  title,
+  reasoning,
+  payload,
+  session_id,
+  session_context
+) VALUES (
+  'make',
+  '[goal|habit|swot_entry|adjustment]',
+  '[TITLE]',
+  '[REASONING]',
+  '[PAYLOAD_JSONB]'::jsonb,
+  '[SESSION_UUID]',
+  '[SESSION_CONTEXT_JSONB]'::jsonb
+)
+```
+
+**session_id:** Generate one UUID at the start of each advisory session. All proposals from the same session share the same `session_id`.
+
+**session_context structure:**
+```json
+{
+  "date": "YYYY-MM-DD",
+  "tier": "emergency|core|standard|full",
+  "need_score": 72.4,
+  "advisor_version": "1.1.0"
+}
+```
+
+**payload structures by proposal_type:**
+
+- `goal`: `{ "title", "type": "foundation|drive|joy", "need_id", "hypothesis", "definition_of_done" }`
+- `habit`: `{ "name", "identity", "trigger", "mvv", "full_version", "frequency_days", "tier", "hypothesis", "need_id", "metric_id" (optional) }`
+- `swot_entry`: `{ "type": "strength|weakness|opportunity|threat", "title", "content", "need_ids": [], "impact": "high|medium|low", "source": "advisor_make" }`
+- `adjustment`: `{ "target_table": "goals|habits|swot_entries", "target_id": "UUID", "changes": { "field": "new_value" } }`
+
+**Adjustment allowed fields:**
+- `goals`: `status`, `title`, `hypothesis`, `definition_of_done`, `type`, `need_id`
+- `habits`: `is_active`, `name`, `tier`, `hypothesis`, `trigger`, `mvv`, `full_version`
+- `swot_entries`: `status`, `impact`, `content`, `title`
+
+4. Inform the user that the proposal has been saved and will be available in NeedsCore Dashboard.
 
 ## Context Persistence
 
